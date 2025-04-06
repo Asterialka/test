@@ -9,10 +9,8 @@ import os
 from hsi_dataset import TrainDataset, ValidDataset
 from architecture import *
 from utils import AverageMeter, initialize_logger, save_checkpoint, record_loss, \
-    time2file_name, Loss_MRAE, Loss_RMSE, Loss_PSNR, Loss_MRAE_custom
+    time2file_name, Loss_MRAE, Loss_RMSE, Loss_PSNR
 import datetime
-import physically_plausible as pp
-import numpy as np
 
 parser = argparse.ArgumentParser(description="Spectral Recovery Toolbox")
 parser.add_argument('--method', type=str, default='mst_plus_plus')
@@ -36,16 +34,12 @@ print(f"Iteration per epoch: {len(train_data)}")
 val_data = ValidDataset(data_root=opt.data_root, bgr2rgb=True)
 print("Validation set samples: ", len(val_data))
 
-# load all to physically plausible
-gt_data = {}
-sensitivity = pp.load_cie64cmf('../resources/', np.arange(400,701,9))
-
 # iterations
 per_epoch_iteration = 1000
 total_iteration = per_epoch_iteration*opt.end_epoch
 
 # loss function
-criterion_mrae = Loss_MRAE_custom()
+criterion_mrae = Loss_MRAE()
 criterion_rmse = Loss_RMSE()
 criterion_psnr = Loss_PSNR()
 
@@ -107,13 +101,6 @@ def main():
             lr = optimizer.param_groups[0]['lr']
             optimizer.zero_grad()
             output = model(images)
-            
-            images_rgb = images.permute(0, 3, 2, 1)
-            funda_mat = torch.from_numpy(pp.calculate_fundamental_metamer(sensitivity)).float().cuda()
-            output_spec = output.permute(0, 3, 2, 1)
-            null_basis = torch.from_numpy(pp.calculate_null_basis(sensitivity)).float().cuda()
-            output = (torch.matmul(images_rgb, funda_mat.permute(1, 0)) + torch.matmul(output_spec, null_basis.permute(1, 0))).permute(0, 3, 2, 1)
-            
             loss = criterion_mrae(output, labels)
             loss.backward()
             optimizer.step()
@@ -151,16 +138,6 @@ def validate(val_loader, model):
         with torch.no_grad():
             # compute output
             output = model(input)
-            
-            images_rgb = input.permute(0, 3, 2, 1)
-            funda_mat = torch.from_numpy(pp.calculate_fundamental_metamer(sensitivity)).float().cuda()
-            output_spec = output.permute(0, 3, 2, 1)
-            null_basis = torch.from_numpy(pp.calculate_null_basis(sensitivity)).float().cuda()
-            output = (torch.matmul(images_rgb, funda_mat.permute(1, 0)) + torch.matmul(output_spec, null_basis.permute(1, 0))).permute(0, 3, 2, 1)
-
-            print("output = ", output.shape)
-            print("target = ", target.shape)
-            
             loss_mrae = criterion_mrae(output[:, :, 128:-128, 128:-128], target[:, :, 128:-128, 128:-128])
             loss_rmse = criterion_rmse(output[:, :, 128:-128, 128:-128], target[:, :, 128:-128, 128:-128])
             loss_psnr = criterion_psnr(output[:, :, 128:-128, 128:-128], target[:, :, 128:-128, 128:-128])
